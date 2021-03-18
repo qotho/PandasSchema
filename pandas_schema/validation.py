@@ -215,11 +215,25 @@ class InRangeValidation(_SeriesValidation):
         return (series >= self.min) & (series < self.max)
 
 
+import numpy as np
+from numpy.core.numerictypes import issubdtype
+import pandas as pd
+from typing import List, Union
+from pandas.core.dtypes.common import is_extension_array_dtype
+from pandas_schema.validation import column, _SeriesValidation, _BaseValidation
+from pandas_schema.validation_warning import ValidationWarning
+
+
+# These are replacements for the versions in pandas_schema that fix the error
+# that occurs related to Pandas nullable extension types like Int64Dtype (see issue #39 
+# https://github.com/TMiguelT/PandasSchema/issues/39)
+# 
+# The is a pending pull request for this issue, but there fix doesn't work in all cases.
+
 class IsTypeValidation(_SeriesValidation):
     """
     Checks that each element in the series equals one of the allowed types. This validation only makes sense for an
     object series.
-
     Examples
     --------
     >>> v = IsTypeValidation(allowed_types=[str, int])
@@ -261,7 +275,6 @@ class IsTypeValidation(_SeriesValidation):
 class IsDtypeValidation(_BaseValidation):
     """
     Checks that a series has (one of) the required numpy dtype(s).
-
     Examples
     --------
     >>> v = IsDtypeValidation(dtype=[np.str0, np.float64])
@@ -283,18 +296,34 @@ class IsDtypeValidation(_BaseValidation):
         super().__init__(**kwargs)
 
     @staticmethod
+    def numpy_dtype(dtype: Union[np.dtype, str]):
+        if dtype.type == np.bool_:
+            # BooleanDtype doesn't implement numpy_dtype in Pandas 1.0.5
+            return np.bool
+        elif is_extension_array_dtype(dtype):
+            return dtype.numpy_dtype
+        else:
+            return dtype
+
+    @staticmethod
     def convert_series_dtype_to_system_default(series: pd.Series) -> pd.Series:
         """ On Windows np.dtype(int) returns np.int32, whereas Pandas.Series([1, 2, 3, ..., n]).dtype returns np.int64.
         Linux does return np.int64 for np.dtype(int). Other types (float, bool, etc) return equal types.
         For this reason, the series is converted back and forth to ensure equal types between pandas and numpy."""
 
+        series_dtype = IsDtypeValidation.numpy_dtype(series.dtype)
+
         # If not numeric, no conversion necessary
-        if not np.issubdtype(series.dtype, np.number):
+        if not np.issubdtype(series_dtype, np.number):
             return series
 
         # Convert
-        python_type = type(np.zeros(1, series.dtype).tolist()[0])  # First convert to Python type.
-        return series.astype(python_type)  # Then convert back based on system preference.
+        if is_extension_array_dtype(series):
+            return series.astype(series.dtype)
+        else:
+            python_type = type(np.zeros(1, series_dtype).tolist()[0])  # First convert to Python type.
+            return series.astype(python_type)  # Then convert back based on system preference.
+
 
     def get_errors(self, series: pd.Series, column: 'column.Column' = None) -> list:
 
@@ -316,7 +345,7 @@ class IsDtypeValidation(_BaseValidation):
         # Convert to system dependent default numpy dtype.
         series_converted_type = self.convert_series_dtype_to_system_default(series=series)
 
-        return True in [np.issubdtype(series_converted_type.dtype, given_dtype) for given_dtype in self.dtype]
+        return True in [np.issubdtype(self.numpy_dtype(series_converted_type.dtype), given_dtype) for given_dtype in self.dtype]
 
 
 class CanCallValidation(_SeriesValidation):
