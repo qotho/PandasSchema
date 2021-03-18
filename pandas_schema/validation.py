@@ -215,21 +215,6 @@ class InRangeValidation(_SeriesValidation):
         return (series >= self.min) & (series < self.max)
 
 
-import numpy as np
-from numpy.core.numerictypes import issubdtype
-import pandas as pd
-from typing import List, Union
-from pandas.core.dtypes.common import is_extension_array_dtype
-from pandas_schema.validation import column, _SeriesValidation, _BaseValidation
-from pandas_schema.validation_warning import ValidationWarning
-
-
-# These are replacements for the versions in pandas_schema that fix the error
-# that occurs related to Pandas nullable extension types like Int64Dtype (see issue #39 
-# https://github.com/TMiguelT/PandasSchema/issues/39)
-# 
-# The is a pending pull request for this issue, but there fix doesn't work in all cases.
-
 class IsTypeValidation(_SeriesValidation):
     """
     Checks that each element in the series equals one of the allowed types. This validation only makes sense for an
